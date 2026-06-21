@@ -1,28 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
-const HARDCODED_URL = "https://ycvgovawzowxjfyvbulm.supabase.co";
-const HARDCODED_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljdmdvdmF3em93eGpmeXZidWxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwMjgwNjMsImV4cCI6MjA5NzYwNDA2M30.aqDrCTguGNxNgP7bFpAXNP6LrkwPj4wA_aqwbBrYErA";
-
-const envUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "").trim();
-const envKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
-
-function isValidSupabaseKey(key: string | undefined): key is string {
-  return !!key && typeof key === "string" && key.toLowerCase().startsWith("eyj");
-}
-
-function isValidSupabaseUrl(url: string | undefined): url is string {
-  return !!url && typeof url === "string" && url.startsWith("https://");
-}
-
-const supabaseUrl = isValidSupabaseUrl(envUrl) ? envUrl : HARDCODED_URL;
-const supabaseAnonKey = isValidSupabaseKey(envKey) ? envKey : HARDCODED_ANON_KEY;
-
-if (typeof window !== "undefined") {
-  console.log("[CoPilot TV Supabase] URL:", supabaseUrl);
-  console.log("[CoPilot TV Supabase] Key valid:", isValidSupabaseKey(supabaseAnonKey));
-  console.log("[CoPilot TV Supabase] Key starts with:", supabaseAnonKey.slice(0, 20) + "...");
-  console.log("[CoPilot TV Supabase] Source:", isValidSupabaseKey(envKey) ? "env var" : "hardcoded fallback");
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ycvgovawzowxjfyvbulm.supabase.co";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_pBTIRsGtE7iXKgQYU1Wq7g_4upT2c9_";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
