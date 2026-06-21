@@ -23,10 +23,23 @@ interface VideoPlayerProps {
 }
 
 const PROXY_SERVICES = [
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ];
+
+async function testProxy(proxyFn: (url: string) => string, testUrl: string): Promise<boolean> {
+  try {
+    const proxyUrl = proxyFn(testUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(proxyUrl, { method: "GET", signal: controller.signal });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -41,6 +54,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [useDirect, setUseDirect] = useState(false);
+  const [workingProxyIndex, setWorkingProxyIndex] = useState(0);
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const errorTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -59,7 +73,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
       const video = videoRef.current;
       if (!video) return;
 
-      // Clean up previous HLS instance
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
@@ -69,7 +82,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
       setErrorMsg(null);
       clearErrorTimer();
 
-      // Start error timer
       errorTimerRef.current = setTimeout(() => {
         const vid = videoRef.current;
         if (vid && (vid.paused || vid.readyState < 2)) {
@@ -77,7 +89,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           setHasError(true);
           setErrorMsg("Stream failed to load. The server may be unavailable or blocked.");
         }
-      }, 5000);
+      }, 6000);
 
       const isHls = videoSrc.toLowerCase().includes(".m3u8");
 
@@ -89,16 +101,41 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               maxBufferLength: 30,
               maxMaxBufferLength: 600,
               liveSyncDurationCount: 3,
-              fragLoadingTimeOut: 20000,
-              manifestLoadingTimeOut: 20000,
-              levelLoadingTimeOut: 20000,
+              fragLoadingTimeOut: 25000,
+              manifestLoadingTimeOut: 25000,
+              levelLoadingTimeOut: 25000,
             };
 
-            // Only set xhrSetup when using proxy (not direct fallback)
             if (!directFallback) {
+              // Test proxies upfront and pick the first working one
+              let proxyIdx = workingProxyIndex;
+              const testUrl = videoSrc;
+              let foundWorking = false;
+
+              for (let i = 0; i < PROXY_SERVICES.length; i++) {
+                const idx = (proxyIdx + i) % PROXY_SERVICES.length;
+                console.log(`[CoPilot TV] Testing proxy ${idx}...`);
+                const ok = await testProxy(PROXY_SERVICES[idx], testUrl);
+                if (ok) {
+                  proxyIdx = idx;
+                  foundWorking = true;
+                  console.log(`[CoPilot TV] Proxy ${idx} works`);
+                  break;
+                }
+              }
+
+              if (!foundWorking) {
+                console.warn("[CoPilot TV] No proxy responded, trying direct fallback");
+                setUseDirect(true);
+                clearErrorTimer();
+                return;
+              }
+
+              setWorkingProxyIndex(proxyIdx);
+
               config.xhrSetup = (xhr: XMLHttpRequest, url: string) => {
-                const proxyUrl = PROXY_SERVICES[retryCount % PROXY_SERVICES.length](url);
-                console.log("[CoPilot TV] Proxying:", url, "->", proxyUrl);
+                const proxyUrl = PROXY_SERVICES[proxyIdx](url);
+                console.log("[CoPilot TV] Proxying via", proxyIdx, ":", url.slice(0, 80) + "...");
                 xhr.open("GET", proxyUrl, true);
                 xhr.withCredentials = false;
               };
@@ -135,11 +172,9 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               }
             });
 
-            // Load original URL — xhrSetup handles proxying for non-direct mode
             hls.loadSource(videoSrc);
             hls.attachMedia(video);
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-            // Native HLS support (e.g., Safari / Tesla browser)
             video.src = videoSrc;
             video.addEventListener("loadedmetadata", () => {
               clearErrorTimer();
@@ -159,7 +194,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           clearErrorTimer();
         }
       } else {
-        // Standard MP4 / direct stream
         video.src = videoSrc;
         video.addEventListener("loadedmetadata", () => {
           clearErrorTimer();
@@ -169,18 +203,17 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         });
       }
     },
-    [clearErrorTimer, retryCount]
+    [clearErrorTimer, retryCount, workingProxyIndex]
   );
 
-  // Reset state when src changes
   useEffect(() => {
     setUseDirect(false);
     setRetryCount(0);
     setHasError(false);
     setErrorMsg(null);
+    setWorkingProxyIndex(0);
   }, [src]);
 
-  // Setup HLS when src, useDirect, or retryCount changes
   useEffect(() => {
     setupHls(src, useDirect);
 
@@ -282,7 +315,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     setUseDirect(false);
     setHasError(false);
     setErrorMsg(null);
-    // Effect will re-run because retryCount changed
+    setWorkingProxyIndex((i) => (i + 1) % PROXY_SERVICES.length);
   };
 
   return (
@@ -292,7 +325,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
       onMouseMove={handleMouseMove}
       onClick={handleMouseMove}
     >
-      {/* Video */}
       <div className="flex-1 relative flex items-center justify-center bg-black">
         <video
           ref={videoRef}
@@ -302,7 +334,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           onDoubleClick={toggleFullscreen}
         />
 
-        {/* Error Overlay */}
         {hasError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10 gap-4">
             <div className="w-16 h-16 rounded-2xl bg-destructive/20 flex items-center justify-center">
@@ -325,13 +356,11 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         )}
       </div>
 
-      {/* Controls Overlay */}
       <div
         className={`absolute inset-0 flex flex-col justify-between p-4 transition-opacity duration-300 ${
           showControls && !hasError ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
-        {/* Top Bar */}
         <div className="flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pb-8 pt-2 px-2">
           <div className="flex items-center gap-3 min-w-0">
             <Button
@@ -346,7 +375,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           </div>
         </div>
 
-        {/* Center Play Button (when paused and no error) */}
         {!isPlaying && !hasError && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
             <Button
@@ -359,7 +387,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           </div>
         )}
 
-        {/* Bottom Controls */}
         <div className="bg-gradient-to-t from-black/80 to-transparent pt-12 pb-4 px-2">
           <div className="flex items-center justify-center gap-6">
             <Button
