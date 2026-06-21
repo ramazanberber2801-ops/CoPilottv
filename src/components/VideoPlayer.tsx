@@ -41,16 +41,22 @@ async function fetchAndRewriteManifest(manifestUrl: string, attempt = 0): Promis
   const res = await proxyFetch(manifestUrl, attempt);
   const text = await res.text();
 
+  // Validate we actually got an M3U8, not an HTML error page
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("#EXTM3U") && !trimmed.startsWith("#EXTINF")) {
+    throw new Error(`Proxy returned non-M3U8 content (starts with: ${trimmed.slice(0, 60)})`);
+  }
+
   const baseUrl = manifestUrl.substring(0, manifestUrl.lastIndexOf("/") + 1);
   const proxyFn = PROXY_SERVICES[attempt % PROXY_SERVICES.length];
 
   const lines = text.split("\n").map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) return line;
+    const trimmedLine = line.trim();
+    if (!trimmedLine || trimmedLine.startsWith("#")) return line;
 
-    let absoluteUrl = trimmed;
-    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-      absoluteUrl = baseUrl + trimmed;
+    let absoluteUrl = trimmedLine;
+    if (!trimmedLine.startsWith("http://") && !trimmedLine.startsWith("https://")) {
+      absoluteUrl = baseUrl + trimmedLine;
     }
 
     return proxyFn(absoluteUrl);
@@ -171,8 +177,9 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
                 return;
               }
             } else {
-              console.log("[CoPilot TV] Direct fallback, loading original URL");
-              video.src = videoSrc;
+              console.log("[CoPilot TV] Direct fallback, loading proxied URL");
+              const proxyFn = PROXY_SERVICES[retryCount % PROXY_SERVICES.length];
+              video.src = proxyFn(videoSrc);
               video.addEventListener("loadedmetadata", () => {
                 clearErrorTimer();
                 video.play().catch((err: Error) => {
