@@ -1,4 +1,3 @@
-<![CDATA[
 "use client";
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
@@ -456,4 +455,3 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     </div>
   );
 }
-</file_contents>
