@@ -3,6 +3,14 @@ import type { NextApiRequest, NextApiResponse } from "next";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { url } = req.query;
 
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Range, Accept, Content-Type");
+    res.status(204).end();
+    return;
+  }
+
   if (!url || typeof url !== "string") {
     return res.status(400).json({ error: "Missing url parameter" });
   }
@@ -54,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Range, Accept");
+    res.setHeader("Access-Control-Allow-Headers", "Range, Accept, Content-Type");
 
     // For m3u8 playlists: rewrite every internal URL to route through this proxy
     if (isM3U8) {

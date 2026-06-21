@@ -56,11 +56,7 @@ export function parseM3U(content: string): Channel[] {
   return channels;
 }
 
-const PROXY_SERVICES = [
-  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-];
+const INTERNAL_PROXY = (url: string) => `/api/proxy?url=${encodeURIComponent(url)}`;
 
 async function fetchWithProxy(url: string, options?: RequestInit, preferDirect = false): Promise<Response> {
   const errors: string[] = [];
@@ -68,29 +64,29 @@ async function fetchWithProxy(url: string, options?: RequestInit, preferDirect =
   if (preferDirect) {
     try {
       const res = await fetch(url, { ...options, mode: "cors" });
-      if (res.ok) return res;
+      if (res.ok || res.status === 206) return res;
       errors.push(`Direct: HTTP ${res.status}`);
     } catch (err) {
       errors.push(`Direct: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  for (const makeProxy of PROXY_SERVICES) {
-    const proxyUrl = makeProxy(url);
-    try {
-      const res = await fetch(proxyUrl, options);
-      if (res.ok || res.status === 206) return res;
-      errors.push(`Proxy: HTTP ${res.status}`);
-    } catch (err) {
-      errors.push(`Proxy: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  try {
+    const proxyUrl = INTERNAL_PROXY(url);
+    const res = await fetch(proxyUrl, options);
+    if (res.ok || res.status === 206) return res;
+    errors.push(`Proxy: HTTP ${res.status}`);
+  } catch (err) {
+    errors.push(`Proxy: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   throw new Error(`All fetch attempts failed:\n${errors.join("\n")}`);
 }
 
 export function getDirectUrl(proxiedUrl: string): string {
-  // No longer stripping proxy wrapper — direct is handled separately
+  if (proxiedUrl.startsWith("/api/proxy?url=")) {
+    return decodeURIComponent(proxiedUrl.slice("/api/proxy?url=".length));
+  }
   return proxiedUrl;
 }
 
@@ -149,5 +145,6 @@ export function getXtreamSeriesInfoUrl(creds: XtreamCredentials, seriesId: numbe
 }
 
 export function proxyStreamUrl(url: string): string {
-  return url; // Return original — player handles proxying via hls.js xhrSetup
+  if (url.startsWith("/api/proxy")) return url;
+  return INTERNAL_PROXY(url);
 }

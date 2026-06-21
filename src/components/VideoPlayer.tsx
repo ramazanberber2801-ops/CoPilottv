@@ -47,16 +47,12 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   }, []);
 
   const proxyUrl = useCallback(
-    (url: string, attempt = retryCount) => {
+    (url: string) => {
       if (!useProxy) return url;
-      const proxies = [
-        (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-        (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-        (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-      ];
-      return proxies[attempt % proxies.length](url);
+      if (url.includes("/api/proxy")) return url;
+      return `/api/proxy?url=${encodeURIComponent(url)}`;
     },
-    [useProxy, retryCount]
+    [useProxy]
   );
 
   const setupPlayer = useCallback(
