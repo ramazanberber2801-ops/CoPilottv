@@ -65,7 +65,6 @@ const PROXY_SERVICES = [
 async function fetchWithProxy(url: string, options?: RequestInit, preferDirect = false): Promise<Response> {
   const errors: string[] = [];
 
-  // Try direct first for API calls (some servers have CORS)
   if (preferDirect) {
     try {
       const res = await fetch(url, { ...options, mode: "cors" });
@@ -76,7 +75,6 @@ async function fetchWithProxy(url: string, options?: RequestInit, preferDirect =
     }
   }
 
-  // Try each proxy service
   for (const makeProxy of PROXY_SERVICES) {
     const proxyUrl = makeProxy(url);
     try {

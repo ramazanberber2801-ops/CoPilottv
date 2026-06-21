@@ -47,11 +47,16 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   }, []);
 
   const proxyUrl = useCallback(
-    (url: string) => {
+    (url: string, attempt = retryCount) => {
       if (!useProxy) return url;
-      return `/api/proxy?url=${encodeURIComponent(url)}`;
+      const proxies = [
+        (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+        (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+        (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      ];
+      return proxies[attempt % proxies.length](url);
     },
-    [useProxy]
+    [useProxy, retryCount]
   );
 
   const setupPlayer = useCallback(
@@ -94,7 +99,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               levelLoadingTimeOut: 30000,
               xhrSetup: (xhr, url) => {
                 const proxied = proxyUrl(url);
-                console.log("[CoPilot TV] Proxying segment:", url.slice(0, 80) + "...");
+                console.log("[CoPilot TV] Proxying:", url.slice(0, 80) + "...");
                 xhr.open("GET", proxied, true);
                 xhr.withCredentials = false;
               },
