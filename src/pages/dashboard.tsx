@@ -19,15 +19,24 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, logout, isAdmin, isPremium } = useAuth();
+  const { user, logout, isAdmin, isPremium, isLoading } = useAuth();
 
   React.useEffect(() => {
-    if (!user) {
+    if (!isLoading && !user) {
       router.push("/login");
     }
-  }, [user, router]);
+  }, [user, isLoading, router]);
 
-  if (!user) return null;
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-primary/20 animate-pulse-slow" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleLogout = () => {
     logout();

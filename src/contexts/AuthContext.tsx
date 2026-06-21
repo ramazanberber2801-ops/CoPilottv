@@ -94,13 +94,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid email or password");
     }
 
-    if (found.role !== "admin" && hashPassword(password) !== hashPassword(password)) {
-      // For demo purposes, we accept any password if user exists
-      // In a real app we'd compare hashed passwords
-    }
+    // Simple password check for demo
+    const storedHash = hashPassword(password);
+    // In a real app we'd compare stored hash. For demo, accept any password if user exists.
 
     const session = { userId: found.id, token: generateId() };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    localStorage.setItem("isLoggedIn", "true");
+    localStorage.setItem("userEmail", found.email);
     setUser(found);
   };
 
@@ -127,11 +128,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const session = { userId: newUser.id, token: generateId() };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    localStorage.setItem("isLoggedIn", "true");
+    localStorage.setItem("userEmail", newUser.email);
     setUser(newUser);
   };
 
   const logout = () => {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem("isLoggedIn");
+    localStorage.removeItem("userEmail");
     setUser(null);
   };
 
