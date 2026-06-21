@@ -3,20 +3,25 @@ import { createClient } from "@supabase/supabase-js";
 const HARDCODED_URL = "https://ycvgovawzowxjfyvbulm.supabase.co";
 const HARDCODED_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljdmdvdmF3em93eGpmeXZidWxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwMjgwNjMsImV4cCI6MjA5NzYwNDA2M30.aqDrCTguGNxNgP7bFpAXNP6LrkwPj4wA_aqwbBrYErA";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || HARDCODED_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || HARDCODED_ANON_KEY;
+const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const envKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL is missing. Check your environment variables.");
+function isValidSupabaseKey(key: string | undefined): key is string {
+  return !!key && typeof key === "string" && key.toLowerCase().startsWith("eyj");
 }
-if (!supabaseAnonKey) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY is missing. Check your environment variables.");
+
+function isValidSupabaseUrl(url: string | undefined): url is string {
+  return !!url && typeof url === "string" && url.startsWith("https://");
 }
-if (!supabaseAnonKey.toLowerCase().startsWith("eyj")) {
-  throw new Error(
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY appears invalid. Supabase anon keys are JWT tokens starting with 'eyJ'. " +
-    "Go to Supabase Dashboard → Project Settings → API and copy the 'anon public' key."
-  );
+
+const supabaseUrl = isValidSupabaseUrl(envUrl) ? envUrl : HARDCODED_URL;
+const supabaseAnonKey = isValidSupabaseKey(envKey) ? envKey : HARDCODED_ANON_KEY;
+
+if (typeof window !== "undefined") {
+  console.log("[CoPilot TV Supabase] URL:", supabaseUrl);
+  console.log("[CoPilot TV Supabase] Key valid:", isValidSupabaseKey(supabaseAnonKey));
+  console.log("[CoPilot TV Supabase] Key starts with:", supabaseAnonKey.slice(0, 20) + "...");
+  console.log("[CoPilot TV Supabase] Source:", isValidSupabaseKey(envKey) ? "env var" : "hardcoded fallback");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
