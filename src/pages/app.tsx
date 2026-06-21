@@ -23,6 +23,7 @@ import {
   fetchXtreamVod,
   fetchXtreamSeries,
   getXtreamStreamUrl,
+  proxyStreamUrl,
 } from "@/lib/iptv";
 
 type SectionType = "live" | "movies" | "series";
@@ -159,9 +160,10 @@ export default function AppPage() {
     if (!item.url && !iptvConfig) return;
 
     let src = item.url || "";
-    if (iptvConfig?.type === "m3u" && src) {
+    if (src) {
+      // Proxy ALL stream URLs — both M3U and Xtream
       src = proxyStreamUrl(src);
-    } else if (iptvConfig?.type === "xtream" && !item.url) {
+    } else if (iptvConfig?.type === "xtream") {
       const creds = {
         serverUrl: iptvConfig.serverUrl || "",
         username: iptvConfig.username || "",
