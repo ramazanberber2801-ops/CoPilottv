@@ -1,3 +1,4 @@
+<![CDATA[
 "use client";
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
@@ -28,23 +29,43 @@ const PROXY_SERVICES = [
   (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
 
-async function testProxy(proxyFn: (url: string) => string, testUrl: string): Promise<boolean> {
-  try {
-    const proxyUrl = proxyFn(testUrl);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(proxyUrl, { method: "GET", signal: controller.signal });
-    clearTimeout(timeout);
-    return res.ok;
-  } catch {
-    return false;
-  }
+async function proxyFetch(url: string, attempt = 0): Promise<Response> {
+  const proxyFn = PROXY_SERVICES[attempt % PROXY_SERVICES.length];
+  const proxyUrl = proxyFn(url);
+  console.log(`[CoPilot TV] Proxy fetch attempt ${attempt + 1}:`, proxyUrl.slice(0, 120) + "...");
+  const res = await fetch(proxyUrl, { method: "GET" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res;
+}
+
+async function fetchAndRewriteManifest(manifestUrl: string, attempt = 0): Promise<string> {
+  const res = await proxyFetch(manifestUrl, attempt);
+  const text = await res.text();
+
+  const baseUrl = manifestUrl.substring(0, manifestUrl.lastIndexOf("/") + 1);
+  const proxyFn = PROXY_SERVICES[attempt % PROXY_SERVICES.length];
+
+  const lines = text.split("\n").map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return line;
+
+    let absoluteUrl = trimmed;
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+      absoluteUrl = baseUrl + trimmed;
+    }
+
+    return proxyFn(absoluteUrl);
+  });
+
+  const blob = new Blob([lines.join("\n")], { type: "application/vnd.apple.mpegurl" });
+  return URL.createObjectURL(blob);
 }
 
 export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<InstanceType<typeof import("hls.js").default> | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -54,7 +75,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [useDirect, setUseDirect] = useState(false);
-  const [workingProxyIndex, setWorkingProxyIndex] = useState(0);
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const errorTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -77,6 +97,10 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
 
       setHasError(false);
       setErrorMsg(null);
@@ -89,7 +113,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           setHasError(true);
           setErrorMsg("Stream failed to load. The server may be unavailable or blocked.");
         }
-      }, 6000);
+      }, 8000);
 
       const isHls = videoSrc.toLowerCase().includes(".m3u8");
 
@@ -97,51 +121,14 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         try {
           const Hls = (await import("hls.js")).default;
           if (Hls.isSupported()) {
-            const config: any = {
+            const hls = new Hls({
               maxBufferLength: 30,
               maxMaxBufferLength: 600,
               liveSyncDurationCount: 3,
-              fragLoadingTimeOut: 25000,
-              manifestLoadingTimeOut: 25000,
-              levelLoadingTimeOut: 25000,
-            };
-
-            if (!directFallback) {
-              // Test proxies upfront and pick the first working one
-              let proxyIdx = workingProxyIndex;
-              const testUrl = videoSrc;
-              let foundWorking = false;
-
-              for (let i = 0; i < PROXY_SERVICES.length; i++) {
-                const idx = (proxyIdx + i) % PROXY_SERVICES.length;
-                console.log(`[CoPilot TV] Testing proxy ${idx}...`);
-                const ok = await testProxy(PROXY_SERVICES[idx], testUrl);
-                if (ok) {
-                  proxyIdx = idx;
-                  foundWorking = true;
-                  console.log(`[CoPilot TV] Proxy ${idx} works`);
-                  break;
-                }
-              }
-
-              if (!foundWorking) {
-                console.warn("[CoPilot TV] No proxy responded, trying direct fallback");
-                setUseDirect(true);
-                clearErrorTimer();
-                return;
-              }
-
-              setWorkingProxyIndex(proxyIdx);
-
-              config.xhrSetup = (xhr: XMLHttpRequest, url: string) => {
-                const proxyUrl = PROXY_SERVICES[proxyIdx](url);
-                console.log("[CoPilot TV] Proxying via", proxyIdx, ":", url.slice(0, 80) + "...");
-                xhr.open("GET", proxyUrl, true);
-                xhr.withCredentials = false;
-              };
-            }
-
-            const hls = new Hls(config);
+              fragLoadingTimeOut: 30000,
+              manifestLoadingTimeOut: 30000,
+              levelLoadingTimeOut: 30000,
+            });
             hlsRef.current = hls;
 
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
@@ -172,7 +159,30 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               }
             });
 
-            hls.loadSource(videoSrc);
+            if (!directFallback) {
+              try {
+                const blobUrl = await fetchAndRewriteManifest(videoSrc, retryCount);
+                blobUrlRef.current = blobUrl;
+                console.log("[CoPilot TV] Using blob manifest:", blobUrl.slice(0, 60) + "...");
+                hls.loadSource(blobUrl);
+              } catch (err) {
+                console.warn("[CoPilot TV] Proxy manifest fetch failed:", err);
+                setUseDirect(true);
+                clearErrorTimer();
+                return;
+              }
+            } else {
+              console.log("[CoPilot TV] Direct fallback, loading original URL");
+              video.src = videoSrc;
+              video.addEventListener("loadedmetadata", () => {
+                clearErrorTimer();
+                video.play().catch((err: Error) => {
+                  console.warn("[CoPilot TV] Direct autoplay blocked:", err.message);
+                });
+              });
+              return;
+            }
+
             hls.attachMedia(video);
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             video.src = videoSrc;
@@ -203,7 +213,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         });
       }
     },
-    [clearErrorTimer, retryCount, workingProxyIndex]
+    [clearErrorTimer, retryCount]
   );
 
   useEffect(() => {
@@ -211,7 +221,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     setRetryCount(0);
     setHasError(false);
     setErrorMsg(null);
-    setWorkingProxyIndex(0);
   }, [src]);
 
   useEffect(() => {
@@ -244,6 +253,10 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
+      }
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
       }
     };
   }, [src, useDirect, retryCount, setupHls, clearErrorTimer]);
@@ -315,7 +328,6 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     setUseDirect(false);
     setHasError(false);
     setErrorMsg(null);
-    setWorkingProxyIndex((i) => (i + 1) % PROXY_SERVICES.length);
   };
 
   return (
@@ -444,3 +456,4 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     </div>
   );
 }
+</file_contents>
