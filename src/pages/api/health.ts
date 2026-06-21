@@ -9,7 +9,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     url_present: !!url,
     key_present: !!key,
     url_format_valid: url ? url.startsWith("https://") && url.includes(".supabase.co") : false,
-    key_format_valid: key ? key.startsWith("eyJ") : false,
+    key_format_valid: key ? key.toLowerCase().startsWith("eyj") : false,
     url: url || null,
     key_preview: key ? `${key.slice(0, 20)}...` : null,
     error: null as string | null,

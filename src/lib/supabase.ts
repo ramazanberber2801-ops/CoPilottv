@@ -9,7 +9,7 @@ if (!supabaseUrl) {
 if (!supabaseAnonKey) {
   throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY is missing. Check your environment variables.");
 }
-if (!supabaseAnonKey.startsWith("eyJ")) {
+if (!supabaseAnonKey.toLowerCase().startsWith("eyj")) {
   throw new Error(
     "NEXT_PUBLIC_SUPABASE_ANON_KEY appears invalid. Supabase anon keys are JWT tokens starting with 'eyJ'. " +
     "Go to Supabase Dashboard → Project Settings → API and copy the 'anon public' key."
