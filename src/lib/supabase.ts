@@ -32,3 +32,43 @@ export type Profile = {
   subscription: "free" | "premium";
   created_at: string;
 };
+
+export async function getUserPlaylist(userId: string): Promise<PlaylistConfig | null> {
+  const { data, error } = await supabase
+    .from("playlists")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("getUserPlaylist error:", error);
+    return null;
+  }
+  return data && data.length > 0 ? (data[0] as PlaylistConfig) : null;
+}
+
+export async function upsertPlaylist(
+  config: Omit<PlaylistConfig, "id" | "created_at" | "updated_at">
+): Promise<void> {
+  const { data: existingRows, error: fetchError } = await supabase
+    .from("playlists")
+    .select("id")
+    .eq("user_id", config.user_id)
+    .limit(1);
+
+  if (fetchError) throw new Error(fetchError.message);
+
+  const existingId = existingRows && existingRows.length > 0 ? (existingRows[0] as { id: string }).id : null;
+
+  if (existingId) {
+    const { error } = await supabase
+      .from("playlists")
+      .update(config)
+      .eq("id", existingId);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("playlists").insert(config);
+    if (error) throw new Error(error.message);
+  }
+}

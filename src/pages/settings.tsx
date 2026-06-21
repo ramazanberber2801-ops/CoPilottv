@@ -46,13 +46,23 @@ export default function SettingsPage() {
   const [testMessage, setTestMessage] = useState("");
 
   React.useEffect(() => {
+    if (user?.iptvConfig) {
+      setActiveTab(user.iptvConfig.type);
+      setM3uUrl(user.iptvConfig.m3uUrl || "");
+      setServerUrl(user.iptvConfig.serverUrl || "");
+      setUsername(user.iptvConfig.username || "");
+      setPassword(user.iptvConfig.password || "");
+    }
+  }, [user?.iptvConfig]);
+
+  React.useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login");
     }
   }, [user, authLoading, router]);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     router.push("/");
   };
 
@@ -60,30 +70,46 @@ export default function SettingsPage() {
     e.preventDefault();
     if (!m3uUrl.trim()) return;
 
-    updateIptvConfig({
-      type: "m3u",
-      m3uUrl: m3uUrl.trim(),
-    });
+    setTestStatus("testing");
+    setTestMessage("Saving...");
 
-    setTestStatus("success");
-    setTestMessage("M3U configuration saved");
-    setTimeout(() => setTestStatus("idle"), 3000);
+    try {
+      await updateIptvConfig({
+        type: "m3u",
+        m3uUrl: m3uUrl.trim(),
+      });
+      setTestStatus("success");
+      setTestMessage("M3U configuration saved");
+    } catch (err) {
+      setTestStatus("error");
+      setTestMessage(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setTimeout(() => setTestStatus("idle"), 3000);
+    }
   };
 
   const handleSaveXtream = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!serverUrl.trim() || !username.trim() || !password.trim()) return;
 
-    updateIptvConfig({
-      type: "xtream",
-      serverUrl: serverUrl.trim(),
-      username: username.trim(),
-      password: password.trim(),
-    });
+    setTestStatus("testing");
+    setTestMessage("Saving...");
 
-    setTestStatus("success");
-    setTestMessage("Xtream Codes configuration saved");
-    setTimeout(() => setTestStatus("idle"), 3000);
+    try {
+      await updateIptvConfig({
+        type: "xtream",
+        serverUrl: serverUrl.trim(),
+        username: username.trim(),
+        password: password.trim(),
+      });
+      setTestStatus("success");
+      setTestMessage("Xtream Codes configuration saved");
+    } catch (err) {
+      setTestStatus("error");
+      setTestMessage(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setTimeout(() => setTestStatus("idle"), 3000);
+    }
   };
 
   const handleTestM3U = async () => {

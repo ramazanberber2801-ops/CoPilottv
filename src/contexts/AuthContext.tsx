@@ -1,6 +1,9 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { supabase, getUserPlaylist, upsertPlaylist } from "@/lib/supabase";
+import type { PlaylistConfig } from "@/lib/supabase";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 export interface User {
   id: string;
@@ -22,8 +25,8 @@ interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
-  logout: () => void;
-  updateIptvConfig: (config: User["iptvConfig"]) => void;
+  logout: () => Promise<void>;
+  updateIptvConfig: (config: User["iptvConfig"]) => Promise<void>;
   isAdmin: boolean;
   isPremium: boolean;
   isLoading: boolean;
@@ -32,125 +35,124 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const ADMIN_EMAIL = "ramazanberber2801@gmail.com";
-const USERS_KEY = "copilot_tv_users";
-const SESSION_KEY = "copilot_tv_session";
 
-function getUsers(): User[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const data = localStorage.getItem(USERS_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
+function isAdminEmail(email: string): boolean {
+  return email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+}
+
+function mapSupabaseUser(sbUser: SupabaseUser, playlist?: PlaylistConfig | null): User {
+  const email = sbUser.email || "";
+  const metadata = (sbUser.user_metadata as Record<string, unknown>) || {};
+  const admin = isAdminEmail(email);
+
+  let iptvConfig: User["iptvConfig"] | undefined;
+  if (playlist) {
+    if (playlist.config_type === "m3u" && playlist.m3u_url) {
+      iptvConfig = { type: "m3u", m3uUrl: playlist.m3u_url };
+    } else if (playlist.config_type === "xtream") {
+      iptvConfig = {
+        type: "xtream",
+        serverUrl: playlist.xtream_server_url || undefined,
+        username: playlist.xtream_username || undefined,
+        password: playlist.xtream_password || undefined,
+      };
+    }
   }
-}
 
-function saveUsers(users: User[]) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function hashPassword(password: string): string {
-  let hash = 0;
-  for (let i = 0; i < password.length; i++) {
-    const char = password.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return String(hash);
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  return {
+    id: sbUser.id,
+    email: email.toLowerCase(),
+    name: String(metadata.name || metadata.full_name || email.split("@")[0] || "User"),
+    role: admin ? "admin" : "user",
+    subscription: admin ? "premium" : "free",
+    iptvConfig,
+    createdAt: sbUser.created_at || new Date().toISOString(),
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const session = localStorage.getItem(SESSION_KEY);
-    if (session) {
-      try {
-        const { userId } = JSON.parse(session);
-        const users = getUsers();
-        const found = users.find((u) => u.id === userId);
-        if (found) {
-          setUser(found);
-        } else {
-          localStorage.removeItem(SESSION_KEY);
-        }
-      } catch {
-        localStorage.removeItem(SESSION_KEY);
-      }
-    }
-    setIsLoading(false);
+  const fetchUserWithPlaylist = useCallback(async (sbUser: SupabaseUser) => {
+    const playlist = sbUser.id ? await getUserPlaylist(sbUser.id) : null;
+    setUser(mapSupabaseUser(sbUser, playlist));
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (session?.user) {
+        await fetchUserWithPlaylist(session.user);
+      }
+      setIsLoading(false);
+    };
+
+    init();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      if (session?.user) {
+        fetchUserWithPlaylist(session.user);
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [fetchUserWithPlaylist]);
+
   const login = async (email: string, password: string) => {
-    const users = getUsers();
-    const found = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-
-    if (!found) {
-      throw new Error("Invalid email or password");
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+    if (data.user) {
+      await fetchUserWithPlaylist(data.user);
     }
-
-    // Simple password check for demo
-    const storedHash = hashPassword(password);
-    // In a real app we'd compare stored hash. For demo, accept any password if user exists.
-
-    const session = { userId: found.id, token: generateId() };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    localStorage.setItem("isLoggedIn", "true");
-    localStorage.setItem("userEmail", found.email);
-    setUser(found);
   };
 
   const register = async (name: string, email: string, password: string) => {
-    const users = getUsers();
-
-    if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
-      throw new Error("Email already registered");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { name },
+      },
+    });
+    if (error) throw new Error(error.message);
+    if (!data.session) {
+      throw new Error("Please check your email to confirm your account before logging in.");
     }
-
-    const isAdmin = email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-
-    const newUser: User = {
-      id: generateId(),
-      email: email.toLowerCase(),
-      name,
-      role: isAdmin ? "admin" : "user",
-      subscription: isAdmin ? "premium" : "free",
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(newUser);
-    saveUsers(users);
-
-    const session = { userId: newUser.id, token: generateId() };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    localStorage.setItem("isLoggedIn", "true");
-    localStorage.setItem("userEmail", newUser.email);
-    setUser(newUser);
+    if (data.user) {
+      await fetchUserWithPlaylist(data.user);
+    }
   };
 
-  const logout = () => {
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem("isLoggedIn");
-    localStorage.removeItem("userEmail");
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
   };
 
-  const updateIptvConfig = (config: User["iptvConfig"]) => {
+  const updateIptvConfig = async (config: User["iptvConfig"]) => {
     if (!user) return;
-    const updatedUser = { ...user, iptvConfig: config };
-    const users = getUsers();
-    const idx = users.findIndex((u) => u.id === user.id);
-    if (idx >= 0) {
-      users[idx] = updatedUser;
-      saveUsers(users);
-      setUser(updatedUser);
-    }
+    const userId = user.id;
+
+    const playlistData: Omit<PlaylistConfig, "id" | "created_at" | "updated_at"> = {
+      user_id: userId,
+      config_type: config?.type || "m3u",
+      m3u_url: config?.type === "m3u" ? config.m3uUrl || null : null,
+      xtream_server_url: config?.type === "xtream" ? config.serverUrl || null : null,
+      xtream_username: config?.type === "xtream" ? config.username || null : null,
+      xtream_password: config?.type === "xtream" ? config.password || null : null,
+    };
+
+    await upsertPlaylist(playlistData);
+    setUser((prev) => (prev ? { ...prev, iptvConfig: config } : null));
   };
 
   const value: AuthContextType = {
