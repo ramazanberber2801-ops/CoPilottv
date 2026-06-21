@@ -160,10 +160,7 @@ export default function AppPage() {
     if (!item.url && !iptvConfig) return;
 
     let src = item.url || "";
-    if (src) {
-      // Proxy ALL stream URLs — both M3U and Xtream
-      src = proxyStreamUrl(src);
-    } else if (iptvConfig?.type === "xtream") {
+    if (!src && iptvConfig?.type === "xtream") {
       const creds = {
         serverUrl: iptvConfig.serverUrl || "",
         username: iptvConfig.username || "",

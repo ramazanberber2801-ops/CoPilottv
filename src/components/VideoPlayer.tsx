@@ -48,7 +48,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
 
   const setupHls = useCallback(
     async (videoSrc: string, directFallback = false) => {
-      const urlToLoad = directFallback ? getDirectUrl(videoSrc) : videoSrc;
+      const urlToLoad = videoSrc;
       console.log("[CoPilot TV] Loading stream:", urlToLoad, "| directFallback:", directFallback);
 
       const video = videoRef.current;
@@ -64,23 +64,17 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
       setErrorMsg(null);
       clearErrorTimer();
 
-      // Start error timer — if not playing within 2s, show retry
+      // Start error timer
       errorTimerRef.current = setTimeout(() => {
         const vid = videoRef.current;
         if (vid && (vid.paused || vid.readyState < 2)) {
           console.warn("[CoPilot TV] Stream failed to start after 2s");
-          if (!directFallback) {
-            console.log("[CoPilot TV] Trying direct URL fallback...");
-            setUseDirect(true);
-            setupHls(videoSrc, true);
-            return;
-          }
           setHasError(true);
-          setErrorMsg("Stream failed to load. The server may be unavailable.");
+          setErrorMsg("Stream failed to load. The server may be unavailable or blocked.");
         }
-      }, 2500);
+      }, 3000);
 
-      const isHls = urlToLoad.includes(".m3u8");
+      const isHls = urlToLoad.toLowerCase().includes(".m3u8");
 
       if (isHls) {
         try {
@@ -94,13 +88,14 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               manifestLoadingTimeOut: 20000,
               levelLoadingTimeOut: 20000,
               xhrSetup: (xhr, url) => {
-                // Proxy every hls.js internal request through allorigins
-                if (!directFallback && !url.includes("allorigins.win")) {
-                  const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-                  xhr.open("GET", proxied, true);
-                } else {
-                  xhr.open("GET", url, true);
-                }
+                // Cycle through proxy services for segment requests
+                const proxyServices = [
+                  (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+                  (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+                  (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+                ];
+                const proxied = proxyServices[retryCount % proxyServices.length](url);
+                xhr.open("GET", proxied, true);
                 xhr.withCredentials = false;
               },
             });
@@ -125,18 +120,19 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               console.error("[CoPilot TV] HLS error:", data.type, data.details, data.fatal);
               if (data.fatal) {
                 clearErrorTimer();
-                if (!directFallback) {
-                  console.log("[CoPilot TV] Fatal HLS error, trying direct URL...");
-                  setUseDirect(true);
-                  setupHls(videoSrc, true);
-                } else {
-                  setHasError(true);
-                  setErrorMsg(`HLS Error: ${data.type} — ${data.details}`);
-                }
+                setHasError(true);
+                setErrorMsg(`HLS Error: ${data.type} — ${data.details}`);
               }
             });
 
-            hls.loadSource(urlToLoad);
+            // Proxy the initial manifest URL too
+            const proxyServices = [
+              (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+              (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+              (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+            ];
+            const manifestProxy = proxyServices[retryCount % proxyServices.length](urlToLoad);
+            hls.loadSource(manifestProxy);
             hls.attachMedia(video);
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             // Native HLS support (e.g., Safari / Tesla browser)
@@ -154,14 +150,9 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           }
         } catch (err) {
           console.error("[CoPilot TV] Failed to load hls.js:", err);
-          if (!directFallback) {
-            setUseDirect(true);
-            setupHls(videoSrc, true);
-          } else {
-            setHasError(true);
-            setErrorMsg("Failed to initialize HLS player.");
-            clearErrorTimer();
-          }
+          setHasError(true);
+          setErrorMsg("Failed to initialize HLS player.");
+          clearErrorTimer();
         }
       } else {
         // Standard MP4 / direct stream
@@ -174,7 +165,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         });
       }
     },
-    [clearErrorTimer]
+    [clearErrorTimer, retryCount]
   );
 
   useEffect(() => {
