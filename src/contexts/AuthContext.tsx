@@ -23,6 +23,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  updateIptvConfig: (config: User["iptvConfig"]) => void;
   isAdmin: boolean;
   isPremium: boolean;
   isLoading: boolean;
@@ -140,11 +141,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const updateIptvConfig = (config: User["iptvConfig"]) => {
+    if (!user) return;
+    const updatedUser = { ...user, iptvConfig: config };
+    const users = getUsers();
+    const idx = users.findIndex((u) => u.id === user.id);
+    if (idx >= 0) {
+      users[idx] = updatedUser;
+      saveUsers(users);
+      setUser(updatedUser);
+    }
+  };
+
   const value: AuthContextType = {
     user,
     login,
     register,
     logout,
+    updateIptvConfig,
     isAdmin: user?.role === "admin",
     isPremium: user?.subscription === "premium" || user?.role === "admin",
     isLoading,

@@ -1,6 +1,6 @@
 ---
 title: Authentication System
-status: in_progress
+status: done
 priority: urgent
 type: feature
 tags: [auth, localstorage]
@@ -13,12 +13,12 @@ position: 1
 Build login and registration with localStorage persistence. Hardcoded admin rule: email "ramazanberber2801@gmail.com" automatically gets role=admin and subscription=premium. All other users get role=user and subscription=free.
 
 ## Checklist
-- [ ] Create AuthContext with login/register/logout and admin/premium guards
-- [ ] Build /login page with Neon Cyber-Glass styling
-- [ ] Build /register page with Neon Cyber-Glass styling
-- [ ] Update _app.tsx to wrap with AuthProvider
-- [ ] Update index.tsx as landing/auth gateway
-- [ ] Add auth guards for protected routes
+- [x] Create AuthContext with login/register/logout and admin/premium guards
+- [x] Build /login page with Neon Cyber-Glass styling
+- [x] Build /register page with Neon Cyber-Glass styling
+- [x] Update _app.tsx to wrap with AuthProvider
+- [x] Update index.tsx as landing/auth gateway
+- [x] Add auth guards for protected routes
 
 ## Acceptance
 - User can register and login with localStorage persistence

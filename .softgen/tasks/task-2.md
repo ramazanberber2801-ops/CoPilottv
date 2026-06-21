@@ -1,26 +1,25 @@
 ---
 title: IPTV Dashboard & Input Methods
-status: todo
+status: in_progress
 priority: high
 type: feature
-tags: [iptv, dashboard, xtream, m3u]
+tags: [iptv, m3u, xtream, settings]
 created_by: agent
 created_at: 2026-06-21T08:30:00Z
 position: 2
 ---
 
 ## Notes
-User settings/dashboard to configure IPTV provider. Toggle between M3U URL paste and Xtream Codes API credentials. Store config in localStorage per user. Validate inputs before saving.
+Build settings page for dual IPTV input: M3U URL or Xtream Codes API. Config persists per user in localStorage. Create server proxy for CORS bypass.
 
 ## Checklist
-- [ ] Create /dashboard page with subscription status display
-- [ ] Build IPTV config component with M3U / Xtream tabs
-- [ ] Implement M3U URL input and validation
-- [ ] Implement Xtream Codes form (server URL, username, password)
-- [ ] Save config to localStorage linked to user ID
-- [ ] Add subscription upgrade UI (mock payment flow)
+- [ ] Create IPTV service utilities (M3U parser, Xtream API helpers)
+- [ ] Build server-side proxy API for CORS/mixed-content bypass
+- [ ] Build /settings page with M3U and Xtream tabs
+- [ ] Save config to user profile in localStorage
+- [ ] Test connection via proxy
 
 ## Acceptance
-- User can switch between M3U and Xtream input methods
-- Config persists per user in localStorage
-- Dashboard shows current subscription tier
+- User can input M3U URL or Xtream credentials
+- Config persists and loads on return
+- Proxy successfully fetches remote content
