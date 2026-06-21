@@ -57,7 +57,17 @@ export function parseM3U(content: string): Channel[] {
 }
 
 function buildProxyUrl(targetUrl: string): string {
-  return `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
+  return `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+}
+
+export function getDirectUrl(proxiedUrl: string): string {
+  // Strips allorigins proxy wrapper to get the original URL
+  const decoded = decodeURIComponent(proxiedUrl);
+  const prefix = "https://api.allorigins.win/raw?url=";
+  if (decoded.startsWith(prefix)) {
+    return decoded.slice(prefix.length);
+  }
+  return proxiedUrl;
 }
 
 export async function fetchM3U(m3uUrl: string): Promise<Channel[]> {

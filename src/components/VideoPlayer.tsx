@@ -15,6 +15,7 @@ import {
   RefreshCw,
   AlertTriangle,
 } from "lucide-react";
+import { getDirectUrl } from "@/lib/iptv";
 
 interface VideoPlayerProps {
   src: string;
@@ -34,6 +35,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const [hasError, setHasError] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [useDirect, setUseDirect] = useState(false);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const errorTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -45,8 +47,9 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   }, []);
 
   const setupHls = useCallback(
-    async (videoSrc: string) => {
-      console.log("[CoPilot TV] Loading stream:", videoSrc);
+    async (videoSrc: string, directFallback = false) => {
+      const urlToLoad = directFallback ? getDirectUrl(videoSrc) : videoSrc;
+      console.log("[CoPilot TV] Loading stream:", urlToLoad, "| directFallback:", directFallback);
 
       const video = videoRef.current;
       if (!video) return;
@@ -66,12 +69,18 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         const vid = videoRef.current;
         if (vid && (vid.paused || vid.readyState < 2)) {
           console.warn("[CoPilot TV] Stream failed to start after 2s");
+          if (!directFallback) {
+            console.log("[CoPilot TV] Trying direct URL fallback...");
+            setUseDirect(true);
+            setupHls(videoSrc, true);
+            return;
+          }
           setHasError(true);
           setErrorMsg("Stream failed to load. The server may be unavailable.");
         }
-      }, 2000);
+      }, 2500);
 
-      const isHls = videoSrc.includes(".m3u8");
+      const isHls = urlToLoad.includes(".m3u8");
 
       if (isHls) {
         try {
@@ -84,6 +93,16 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               fragLoadingTimeOut: 20000,
               manifestLoadingTimeOut: 20000,
               levelLoadingTimeOut: 20000,
+              xhrSetup: (xhr, url) => {
+                // Proxy every hls.js internal request through allorigins
+                if (!directFallback && !url.includes("allorigins.win")) {
+                  const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+                  xhr.open("GET", proxied, true);
+                } else {
+                  xhr.open("GET", url, true);
+                }
+                xhr.withCredentials = false;
+              },
             });
 
             hlsRef.current = hls;
@@ -105,17 +124,23 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
             hls.on(Hls.Events.ERROR, (_event, data) => {
               console.error("[CoPilot TV] HLS error:", data.type, data.details, data.fatal);
               if (data.fatal) {
-                setHasError(true);
-                setErrorMsg(`HLS Error: ${data.type} — ${data.details}`);
                 clearErrorTimer();
+                if (!directFallback) {
+                  console.log("[CoPilot TV] Fatal HLS error, trying direct URL...");
+                  setUseDirect(true);
+                  setupHls(videoSrc, true);
+                } else {
+                  setHasError(true);
+                  setErrorMsg(`HLS Error: ${data.type} — ${data.details}`);
+                }
               }
             });
 
-            hls.loadSource(videoSrc);
+            hls.loadSource(urlToLoad);
             hls.attachMedia(video);
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             // Native HLS support (e.g., Safari / Tesla browser)
-            video.src = videoSrc;
+            video.src = urlToLoad;
             video.addEventListener("loadedmetadata", () => {
               clearErrorTimer();
               video.play().catch((err) => {
@@ -129,13 +154,18 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
           }
         } catch (err) {
           console.error("[CoPilot TV] Failed to load hls.js:", err);
-          setHasError(true);
-          setErrorMsg("Failed to initialize HLS player.");
-          clearErrorTimer();
+          if (!directFallback) {
+            setUseDirect(true);
+            setupHls(videoSrc, true);
+          } else {
+            setHasError(true);
+            setErrorMsg("Failed to initialize HLS player.");
+            clearErrorTimer();
+          }
         }
       } else {
         // Standard MP4 / direct stream
-        video.src = videoSrc;
+        video.src = urlToLoad;
         video.addEventListener("loadedmetadata", () => {
           clearErrorTimer();
           video.play().catch((err) => {
@@ -148,7 +178,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   );
 
   useEffect(() => {
-    setupHls(src);
+    setupHls(src, useDirect);
 
     const video = videoRef.current;
     if (!video) return;
@@ -160,9 +190,15 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     const handlePause = () => setIsPlaying(false);
     const handleError = () => {
       console.error("[CoPilot TV] Video element error:", video.error);
-      setHasError(true);
-      setErrorMsg("The stream could not be played.");
-      clearErrorTimer();
+      if (!useDirect) {
+        console.log("[CoPilot TV] Video error, trying direct fallback...");
+        setUseDirect(true);
+        setupHls(src, true);
+      } else {
+        setHasError(true);
+        setErrorMsg("The stream could not be played.");
+        clearErrorTimer();
+      }
     };
 
     video.addEventListener("play", handlePlay);
@@ -179,7 +215,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         hlsRef.current = null;
       }
     };
-  }, [src, setupHls, clearErrorTimer]);
+  }, [src, setupHls, clearErrorTimer, useDirect]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -245,7 +281,8 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
 
   const handleRetry = () => {
     setRetryCount((c) => c + 1);
-    setupHls(src);
+    setUseDirect(false);
+    setupHls(src, false);
   };
 
   return (
@@ -281,6 +318,9 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
               Retry Stream
             </Button>
             <p className="text-white/30 text-xs mt-2">Attempt {retryCount + 1}</p>
+            {useDirect && (
+              <p className="text-white/20 text-xs">Direct mode active</p>
+            )}
           </div>
         )}
       </div>
