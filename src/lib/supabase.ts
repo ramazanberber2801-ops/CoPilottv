@@ -3,6 +3,19 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+if (!supabaseUrl) {
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL is missing. Check your environment variables.");
+}
+if (!supabaseAnonKey) {
+  throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY is missing. Check your environment variables.");
+}
+if (!supabaseAnonKey.startsWith("eyJ")) {
+  throw new Error(
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY appears invalid. Supabase anon keys are JWT tokens starting with 'eyJ'. " +
+    "Go to Supabase Dashboard → Project Settings → API and copy the 'anon public' key."
+  );
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
