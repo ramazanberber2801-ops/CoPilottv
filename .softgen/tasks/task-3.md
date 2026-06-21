@@ -1,6 +1,6 @@
 ---
 title: Live TV, Movies & Series Navigation
-status: in_progress
+status: done
 priority: high
 type: feature
 tags: [live-tv, movies, series, content-browser]
@@ -13,11 +13,11 @@ position: 3
 Build the main content browser at /app with three tabs: Live TV, Movies, Series. Lazy load content. Tesla-optimized touch targets (min 48px). Content loads through server proxy.
 
 ## Checklist
-- [ ] Build /app page with tab navigation (Live TV / Movies / Series)
-- [ ] Create content grid component with lazy loading / pagination
-- [ ] Fetch and display channels/movies/series from configured IPTV source
-- [ ] Handle loading, error, and empty states
-- [ ] Tesla-optimized touch targets and spacing
+- [x] Build /app page with tab navigation (Live TV / Movies / Series)
+- [x] Create content grid component with lazy loading / pagination
+- [x] Fetch and display channels/movies/series from configured IPTV source
+- [x] Handle loading, error, and empty states
+- [x] Tesla-optimized touch targets and spacing
 
 ## Acceptance
 - User can browse Live TV, Movies, and Series in separate tabs
