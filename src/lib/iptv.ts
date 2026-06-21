@@ -122,3 +122,7 @@ export function getXtreamSeriesInfoUrl(creds: XtreamCredentials, seriesId: numbe
   const apiUrl = `${baseUrl}/player_api.php?username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&action=get_series_info&series_id=${seriesId}`;
   return buildProxyUrl(apiUrl);
 }
+
+export function proxyStreamUrl(url: string): string {
+  return buildProxyUrl(url);
+}
