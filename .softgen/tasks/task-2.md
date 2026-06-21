@@ -1,6 +1,6 @@
 ---
 title: IPTV Dashboard & Input Methods
-status: in_progress
+status: done
 priority: high
 type: feature
 tags: [iptv, m3u, xtream, settings]
@@ -13,11 +13,11 @@ position: 2
 Build settings page for dual IPTV input: M3U URL or Xtream Codes API. Config persists per user in localStorage. Create server proxy for CORS bypass.
 
 ## Checklist
-- [ ] Create IPTV service utilities (M3U parser, Xtream API helpers)
-- [ ] Build server-side proxy API for CORS/mixed-content bypass
-- [ ] Build /settings page with M3U and Xtream tabs
-- [ ] Save config to user profile in localStorage
-- [ ] Test connection via proxy
+- [x] Create IPTV service utilities (M3U parser, Xtream API helpers)
+- [x] Build server-side proxy API for CORS/mixed-content bypass
+- [x] Build /settings page with M3U and Xtream tabs
+- [x] Save config to user profile in localStorage
+- [x] Test connection via proxy
 
 ## Acceptance
 - User can input M3U URL or Xtream credentials
