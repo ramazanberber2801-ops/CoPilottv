@@ -15,13 +15,18 @@ import {
   RefreshCw,
   AlertTriangle,
 } from "lucide-react";
-import { getDirectUrl } from "@/lib/iptv";
 
 interface VideoPlayerProps {
   src: string;
   title: string;
   onClose: () => void;
 }
+
+const PROXY_SERVICES = [
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+];
 
 export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -36,6 +41,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [useDirect, setUseDirect] = useState(false);
+
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const errorTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -48,8 +54,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
 
   const setupHls = useCallback(
     async (videoSrc: string, directFallback = false) => {
-      const urlToLoad = videoSrc;
-      console.log("[CoPilot TV] Loading stream:", urlToLoad, "| directFallback:", directFallback);
+      console.log("[CoPilot TV] Loading stream:", videoSrc, "| directFallback:", directFallback, "| retry:", retryCount);
 
       const video = videoRef.current;
       if (!video) return;
@@ -68,79 +73,78 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
       errorTimerRef.current = setTimeout(() => {
         const vid = videoRef.current;
         if (vid && (vid.paused || vid.readyState < 2)) {
-          console.warn("[CoPilot TV] Stream failed to start after 2s");
+          console.warn("[CoPilot TV] Stream failed to start after timeout");
           setHasError(true);
           setErrorMsg("Stream failed to load. The server may be unavailable or blocked.");
         }
-      }, 3000);
+      }, 5000);
 
-      const isHls = urlToLoad.toLowerCase().includes(".m3u8");
+      const isHls = videoSrc.toLowerCase().includes(".m3u8");
 
       if (isHls) {
         try {
           const Hls = (await import("hls.js")).default;
           if (Hls.isSupported()) {
-            const hls = new Hls({
+            const config: any = {
               maxBufferLength: 30,
               maxMaxBufferLength: 600,
               liveSyncDurationCount: 3,
               fragLoadingTimeOut: 20000,
               manifestLoadingTimeOut: 20000,
               levelLoadingTimeOut: 20000,
-              xhrSetup: (xhr, url) => {
-                // Cycle through proxy services for segment requests
-                const proxyServices = [
-                  (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-                  (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-                  (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-                ];
-                const proxied = proxyServices[retryCount % proxyServices.length](url);
-                xhr.open("GET", proxied, true);
-                xhr.withCredentials = false;
-              },
-            });
+            };
 
+            // Only set xhrSetup when using proxy (not direct fallback)
+            if (!directFallback) {
+              config.xhrSetup = (xhr: XMLHttpRequest, url: string) => {
+                const proxyUrl = PROXY_SERVICES[retryCount % PROXY_SERVICES.length](url);
+                console.log("[CoPilot TV] Proxying:", url, "->", proxyUrl);
+                xhr.open("GET", proxyUrl, true);
+                xhr.withCredentials = false;
+              };
+            }
+
+            const hls = new Hls(config);
             hlsRef.current = hls;
 
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
               console.log("[CoPilot TV] HLS media attached");
             });
 
-            hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
-              console.log("[CoPilot TV] HLS manifest parsed, levels:", data.levels.length);
+            hls.on(Hls.Events.MANIFEST_PARSED, (_event: any, data: any) => {
+              console.log("[CoPilot TV] HLS manifest parsed, levels:", data.levels?.length || 0);
               setHasError(false);
               setErrorMsg(null);
               clearErrorTimer();
-              video.play().catch((err) => {
-                console.warn("[CoPilot TV] Autoplay blocked:", err);
+              video.play().catch((err: Error) => {
+                console.warn("[CoPilot TV] Autoplay blocked:", err.message);
               });
             });
 
-            hls.on(Hls.Events.ERROR, (_event, data) => {
-              console.error("[CoPilot TV] HLS error:", data.type, data.details, data.fatal);
+            hls.on(Hls.Events.ERROR, (_event: any, data: any) => {
+              console.error("[CoPilot TV] HLS error:", data.type, data.details, "fatal:", data.fatal);
               if (data.fatal) {
                 clearErrorTimer();
-                setHasError(true);
-                setErrorMsg(`HLS Error: ${data.type} — ${data.details}`);
+                if (!directFallback) {
+                  console.log("[CoPilot TV] HLS fatal error, switching to direct fallback...");
+                  setUseDirect(true);
+                } else {
+                  setHasError(true);
+                  setErrorMsg(`HLS Error: ${data.type} — ${data.details}`);
+                }
               }
             });
 
-            // Proxy the initial manifest URL too
-            const proxyServices = [
-              (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-              (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-              (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-            ];
-            const manifestProxy = proxyServices[retryCount % proxyServices.length](urlToLoad);
-            hls.loadSource(manifestProxy);
+            // Load original URL — xhrSetup handles proxying for non-direct mode
+            hls.loadSource(videoSrc);
             hls.attachMedia(video);
           } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
             // Native HLS support (e.g., Safari / Tesla browser)
-            video.src = urlToLoad;
+            video.src = videoSrc;
             video.addEventListener("loadedmetadata", () => {
               clearErrorTimer();
-              video.play().catch((err) => {
-                console.warn("[CoPilot TV] Native autoplay blocked:", err);
+              video.play().catch((err: Error) => {
+                console.warn("[CoPilot TV] Native autoplay blocked:", err.message);
               });
             });
           } else {
@@ -156,11 +160,11 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         }
       } else {
         // Standard MP4 / direct stream
-        video.src = urlToLoad;
+        video.src = videoSrc;
         video.addEventListener("loadedmetadata", () => {
           clearErrorTimer();
-          video.play().catch((err) => {
-            console.warn("[CoPilot TV] Standard autoplay blocked:", err);
+          video.play().catch((err: Error) => {
+            console.warn("[CoPilot TV] Standard autoplay blocked:", err.message);
           });
         });
       }
@@ -168,6 +172,15 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     [clearErrorTimer, retryCount]
   );
 
+  // Reset state when src changes
+  useEffect(() => {
+    setUseDirect(false);
+    setRetryCount(0);
+    setHasError(false);
+    setErrorMsg(null);
+  }, [src]);
+
+  // Setup HLS when src, useDirect, or retryCount changes
   useEffect(() => {
     setupHls(src, useDirect);
 
@@ -180,16 +193,10 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
     };
     const handlePause = () => setIsPlaying(false);
     const handleError = () => {
-      console.error("[CoPilot TV] Video element error:", video.error);
-      if (!useDirect) {
-        console.log("[CoPilot TV] Video error, trying direct fallback...");
-        setUseDirect(true);
-        setupHls(src, true);
-      } else {
-        setHasError(true);
-        setErrorMsg("The stream could not be played.");
-        clearErrorTimer();
-      }
+      console.error("[CoPilot TV] Video element error:", video.error?.code, video.error?.message);
+      setHasError(true);
+      setErrorMsg("The stream could not be played.");
+      clearErrorTimer();
     };
 
     video.addEventListener("play", handlePlay);
@@ -206,7 +213,7 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
         hlsRef.current = null;
       }
     };
-  }, [src, setupHls, clearErrorTimer, useDirect]);
+  }, [src, useDirect, retryCount, setupHls, clearErrorTimer]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -273,7 +280,9 @@ export function VideoPlayer({ src, title, onClose }: VideoPlayerProps) {
   const handleRetry = () => {
     setRetryCount((c) => c + 1);
     setUseDirect(false);
-    setupHls(src, false);
+    setHasError(false);
+    setErrorMsg(null);
+    // Effect will re-run because retryCount changed
   };
 
   return (
